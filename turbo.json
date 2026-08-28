@@ -1,23 +1,41 @@
 {
   "$schema": "https://turborepo.dev/schema.json",
-  "globalEnv": [
-    "BETTER_AUTH_SECRET",
-    "BETTER_AUTH_URL",
-    "DATABASE_URL",
-    "EVE_NEXT_PRODUCTION_ORIGIN",
-    "HOSTED_SECRET_ENCRYPTION_KEY",
-    "SECRET_ENCRYPTION_KEY",
-    "KERNEL_API_KEY",
-    "VERCEL_ENV"
-  ],
   "tasks": {
     "build:app": {
       "dependsOn": ["^build:app"],
-      "outputs": [".next/**", "!.next/cache/**"]
+      "env": [
+        "BETTER_AUTH_*",
+        "BLOB_*",
+        "DATABASE_URL",
+        "EVE_NEXT_*",
+        "*_CONNECTOR_UID",
+        "KERNEL_*",
+        "LINQ_*",
+        "NODE_ENV",
+        "SECRET_ENCRYPTION_KEY",
+        "VERCEL_ENV",
+        "VERCEL_PROJECT_PRODUCTION_URL",
+        "VERCEL_URL"
+      ],
+      "outputs": [".next/**", "!.next/cache/**", "next-env.d.ts"]
     },
     "build:vercel": {
       "dependsOn": ["db:migrate"],
-      "outputs": [".next/**", "!.next/cache/**"]
+      "env": [
+        "BETTER_AUTH_*",
+        "BLOB_*",
+        "DATABASE_URL",
+        "*_CONNECTOR_UID",
+        "KERNEL_*",
+        "LINQ_*",
+        "NODE_ENV",
+        "SECRET_ENCRYPTION_KEY",
+        "VERCEL",
+        "VERCEL_ENV",
+        "VERCEL_PROJECT_PRODUCTION_URL",
+        "VERCEL_URL"
+      ],
+      "outputs": [".next/**", "!.next/cache/**", "next-env.d.ts"]
     },
     "db:migrate": {
       "cache": false,
@@ -26,6 +44,20 @@
     },
     "dev:app": {
       "cache": false,
+      "passThroughEnv": [
+        "BETTER_AUTH_*",
+        "BLOB_*",
+        "DATABASE_URL",
+        "*_CONNECTOR_UID",
+        "KERNEL_*",
+        "LINQ_*",
+        "NODE_ENV",
+        "SECRET_ENCRYPTION_KEY",
+        "VERCEL_ENV",
+        "VERCEL_PROJECT_PRODUCTION_URL",
+        "VERCEL_URL",
+        "VERCEL_OIDC_TOKEN"
+      ],
       "persistent": true
     },
     "deploy:app": {
@@ -42,12 +74,30 @@
     },
     "start:app": {
       "cache": false,
+      "passThroughEnv": [
+        "BETTER_AUTH_*",
+        "BLOB_*",
+        "DATABASE_URL",
+        "*_CONNECTOR_UID",
+        "KERNEL_*",
+        "LINQ_*",
+        "NODE_ENV",
+        "SECRET_ENCRYPTION_KEY",
+        "VERCEL_ENV",
+        "VERCEL_PROJECT_PRODUCTION_URL",
+        "VERCEL_URL",
+        "VERCEL_OIDC_TOKEN"
+      ],
       "persistent": true
     },
     "test:app": {
       "outputs": []
     },
+    "types:generate": {
+      "outputs": [".next/types/**", "next-env.d.ts"]
+    },
     "types:check:app": {
+      "dependsOn": ["types:generate"],
       "outputs": ["*.tsbuildinfo"]
     }
   }

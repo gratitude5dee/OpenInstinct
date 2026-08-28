@@ -1,0 +1,2 @@
+CREATE UNIQUE INDEX "link_spend_requests_workspace_remote_uidx" ON "link_spend_requests" USING btree ("workspace_id","remote_spend_request_id");--> statement-breakpoint
+ALTER TABLE "link_spend_requests" ADD CONSTRAINT "link_spend_requests_merchant_binding_check" CHECK (("link_spend_requests"."kind" = 'link_pay_token' AND "link_spend_requests"."merchant_account_id" IS NOT NULL) OR ("link_spend_requests"."kind" = 'card' AND "link_spend_requests"."merchant_account_id" IS NULL));

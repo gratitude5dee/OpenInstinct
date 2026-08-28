@@ -57,8 +57,9 @@ Run the validation the task requests. When it does not establish the behavior yo
 ## Repository contract
 
 - The repository root owns the single Next.js application, Eve agent, and shared UI contract.
-- The workspace manager lives on `/` and the agent chat on `/chat`; Kernel browser capabilities belong under the official extension mount in `agent/extensions/kernel`.
-- Validate runtime environment variables through `lib/env.ts`. `KERNEL_API_KEY` is required by the shared-key Kernel MCP connection.
+- The workspace manager lives on `/` and the agent chat on `/chat`; browser execution belongs only to the declared worker's flat tool surface under `agent/subagents/worker/tools`.
+- Keep each worker browser tool's schema and implementation together. Share the Kernel SDK client through `lib/kernel.ts` and keep only cross-tool ownership guards under `agent/subagents/worker/lib`; do not add a Kernel extension or root browser connection.
+- Validate runtime environment variables through `lib/env.ts`. `KERNEL_API_KEY` is required by the worker browser tools.
 - Run `pnpm check` and `pnpm build` before handing off changes.
 
 ## Design system
@@ -89,4 +90,5 @@ Before planning or changing product UI:
 This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
 
 This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
 <!-- END:nextjs-agent-rules -->

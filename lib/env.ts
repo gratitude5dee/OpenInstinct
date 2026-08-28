@@ -1,79 +1,101 @@
 import { createEnv } from "@t3-oss/env-nextjs";
 import { z } from "zod";
+import { isE164PhoneNumber } from "../auth/phone-number";
 import { databaseUrlSchema } from "../db/env/utils";
 
-const optionalValue = z
-  .string()
-  .transform((value) => (value.trim().length === 0 ? undefined : value))
-  .optional();
+const localDevelopment =
+  process.env.NODE_ENV === "development" &&
+  process.env.VERCEL_ENV === undefined;
+
+function vercelDeploymentUrl() {
+  const hostname =
+    process.env.VERCEL_ENV === "production"
+      ? (process.env.VERCEL_PROJECT_PRODUCTION_URL ?? process.env.VERCEL_URL)
+      : (process.env.VERCEL_URL ?? process.env.VERCEL_PROJECT_PRODUCTION_URL);
+
+  return hostname ? `https://${hostname}` : undefined;
+}
 
 const requiredValue = z
   .string()
   .refine((value) => value.trim().length > 0, "Required");
 
-const runtimeEnv = createEnv({
+const betterAuthUrlSchema = requiredValue.refine(
+  (value) => URL.canParse(value),
+  "BETTER_AUTH_URL must be an absolute URL"
+);
+
+const secretEncryptionKeySchema = requiredValue.refine(
+  (value) => Buffer.from(value, "base64").length === 32,
+  "SECRET_ENCRYPTION_KEY must be a base64-encoded 32-byte key."
+);
+
+function requiredValueWithLocalDefault<T extends z.ZodType<string, string>>(
+  schema: T,
+  localDefault: z.util.NoUndefined<z.output<T>>
+) {
+  return localDevelopment ? schema.default(localDefault) : schema;
+}
+
+function requiredValueWithOptionalDefault<T extends z.ZodType<string, string>>(
+  schema: T,
+  defaultValue: z.util.NoUndefined<z.output<T>> | undefined
+) {
+  return defaultValue === undefined ? schema : schema.default(defaultValue);
+}
+
+export const env = createEnv({
   server: {
-    BETTER_AUTH_SECRET: requiredValue,
-    BETTER_AUTH_URL: requiredValue.refine(
-      (value) => URL.canParse(value),
-      "BETTER_AUTH_URL must be an absolute URL"
-    ),
-    BROWSER_BENCH_LABEL: z.string().min(1).optional(),
-    BROWSER_BENCH_REPETITIONS: z.coerce
-      .number()
-      .int()
-      .min(1)
-      .max(20)
-      .default(1),
+    // Required
     DATABASE_URL: databaseUrlSchema,
-    EVE_NEXT_PRODUCTION_ORIGIN: optionalValue.refine(
-      (value) => value === undefined || URL.canParse(value),
-      "EVE_NEXT_PRODUCTION_ORIGIN must be an absolute URL"
-    ),
-    HOSTED_SECRET_ENCRYPTION_KEY: optionalValue,
-    SECRET_ENCRYPTION_KEY: optionalValue,
     KERNEL_API_KEY: requiredValue,
+
+    // Required with local defaults
+    BETTER_AUTH_SECRET: requiredValueWithLocalDefault(
+      requiredValue,
+      "openinstinct-local-auth-development-secret"
+    ),
+    BETTER_AUTH_URL: requiredValueWithOptionalDefault(
+      betterAuthUrlSchema,
+      localDevelopment ? "http://localhost:3000" : vercelDeploymentUrl()
+    ),
+    SECRET_ENCRYPTION_KEY: requiredValueWithLocalDefault(
+      secretEncryptionKeySchema,
+      "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+    ),
+
+    // Optional
+    BLOB_READ_WRITE_TOKEN: requiredValue.optional(),
+    BLOB_STORE_ID: requiredValue.optional(),
+    GOOGLE_CONNECTOR_UID: requiredValue.default("google/open-instinct"),
+    LINQ_CONNECTOR: requiredValue.optional(),
+    LINQ_PHONE_NUMBER: requiredValue
+      .refine(
+        (value) => isE164PhoneNumber(value),
+        "LINQ_PHONE_NUMBER must use E.164 format"
+      )
+      .optional(),
     NODE_ENV: z
       .enum(["development", "production", "test"])
       .default("production"),
     VERCEL_ENV: z.enum(["production", "preview", "development"]).optional(),
   },
   experimental__runtimeEnv: {},
+  emptyStringAsUndefined: true,
 });
 
-const secretEncryptionKey =
-  runtimeEnv.SECRET_ENCRYPTION_KEY ?? runtimeEnv.HOSTED_SECRET_ENCRYPTION_KEY;
-
-if (!secretEncryptionKey) {
-  throw new Error("SECRET_ENCRYPTION_KEY is required.");
-}
-
-if (Buffer.from(secretEncryptionKey, "base64").length !== 32) {
-  throw new Error(
-    "SECRET_ENCRYPTION_KEY must be a base64-encoded 32-byte key."
-  );
-}
-
-export const env = {
-  ...runtimeEnv,
-  SECRET_ENCRYPTION_KEY: secretEncryptionKey,
-};
-
-export function isLocalPhoneAuthBypassEnabled(
-  environment: Pick<
-    typeof env,
-    "BETTER_AUTH_URL" | "NODE_ENV" | "VERCEL_ENV"
-  > = env
+if (
+  (env.LINQ_CONNECTOR === undefined) !==
+  (env.LINQ_PHONE_NUMBER === undefined)
 ) {
-  if (
-    environment.NODE_ENV !== "development" ||
-    environment.VERCEL_ENV !== undefined
-  ) {
-    return false;
-  }
-
-  const hostname = new URL(environment.BETTER_AUTH_URL).hostname;
-  return (
-    hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]"
+  throw new Error(
+    "LINQ_CONNECTOR and LINQ_PHONE_NUMBER must be configured together."
   );
 }
+const authHostname = new URL(env.BETTER_AUTH_URL).hostname;
+
+export const localPhoneAuthBypassEnabled =
+  localDevelopment &&
+  (authHostname === "localhost" ||
+    authHostname === "127.0.0.1" ||
+    authHostname === "[::1]");

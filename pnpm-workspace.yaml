@@ -1,3 +1,6 @@
+packages:
+  - "."
+
 minimumReleaseAgeStrict: true
 minimumReleaseAge: 1440
 minimumReleaseAgeExclude:
@@ -15,6 +18,7 @@ minimumReleaseAgeExclude:
   - picomatch
   - systeminformation
 allowBuilds:
+  "@stripe/link-cli": false
   cbor-extract: false
   esbuild: true
   sharp: true

@@ -1,9 +1,9 @@
-# Application database
+# Database
 
-This directory owns the eight application tables and their domain query
-services.
-Better Auth continues to own and migrate its tables independently in
-`auth.ts`.
+This directory owns the eleven workspace application tables, the four Better
+Auth tables, and the application domain query services. Better Auth uses the
+canonical Drizzle client from `db/index.ts`; request paths never create or
+migrate tables.
 
 - `schema/` is the Drizzle source of truth.
 - `index.ts` exports the Drizzle client and schema using pooled `DATABASE_URL`
@@ -12,6 +12,11 @@ Better Auth continues to own and migrate its tables independently in
 - `drizzle.config.ts` uses `DATABASE_URL_UNPOOLED` for migration commands.
 - `migrations/` is generated history. Run `pnpm db:generate` after changing the
   schema and commit the SQL, snapshot, and journal together.
+
+The Link wallet tables contain only safe connection hints and durable checkout
+bindings. Link authorization files, device phrases, approval URLs, and other
+provider secrets use the `link` encrypted-secret namespace; payment credentials
+are never stored in these tables.
 
 Run `pnpm db:migrate` explicitly for local or operator-managed environments.
 Vercel runs the uncached Turbo `db:migrate` task before `build:vercel`. The
@@ -30,6 +35,13 @@ identifier representation, adds missing chat usage columns with safe defaults,
 and installs new foreign keys and checks as `NOT VALID` when a table already
 exists. PostgreSQL enforces those constraints for new writes immediately without
 rejecting the deployment because of an unknown historical orphan.
+
+Migration `0001` adopts the singular `user`, `session`, `account`, and
+`verification` tables previously managed from `auth/index.ts`. It preserves the
+existing `timestamptz` representation and rows, safely adds the nullable
+phone-number plugin fields when absent, and installs the indexes used by Better
+Auth. The runtime now assumes versioned migrations have run before requests are
+served.
 
 Before validating historical rows, back up the database and audit the pending
 constraints:
@@ -52,5 +64,5 @@ ALTER TABLE <table_name> VALIDATE CONSTRAINT <constraint_name>;
 Validation is intentionally not automatic in the first deployment because it
 scans existing rows and could turn unknown legacy drift into a production build
 failure. Once all constraints are validated, their definitions already match
-the canonical Drizzle schema; no data rewrite or Better Auth migration is
-required.
+the canonical Drizzle schema; no data rewrite or separate Better Auth migration
+is required outside the versioned Drizzle path.
