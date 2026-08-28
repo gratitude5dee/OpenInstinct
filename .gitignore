@@ -1,11 +1,14 @@
 node_modules
+.pnpm-store
 .env*
 !.env.example
 .eve
 .vercel
 .next
+next-env.d.ts
 .turbo
 .output
+.wxt
 .nitro
 dist
 .DS_Store

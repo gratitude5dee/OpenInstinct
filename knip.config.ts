@@ -3,8 +3,8 @@ import type { KnipConfig } from "knip";
 export default {
   entry: [
     "agent/channels/**/*.ts",
-    "agent/extensions/**/*.ts",
     "agent/hooks/**/*.ts",
+    "agent/subagents/**/*.ts",
     "agent/tools/**/*.ts",
     "db/drizzle.config.ts",
     "evals/**/*.eval.ts",
@@ -19,9 +19,6 @@ export default {
     "eslint-plugin-react-hooks",
     "eslint-plugin-turbo",
     "oxlint-tailwindcss",
-    // Loaded from generated configuration.
-    "next-themes",
-    "sonner",
     // Invoked as a CLI.
     "vercel",
   ],

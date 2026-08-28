@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { Database } from "@/db";
+import type { db } from "@/db";
 import * as schema from "../db/schema";
 
 const databases: PGlite[] = [];
@@ -18,33 +18,111 @@ describe("database services", () => {
     const client = new PGlite();
     databases.push(client);
     await applyInitialMigration(client);
+    await applyBrowserImageMigration(client);
 
     const pgliteDatabase = drizzle(client, { schema });
-    Object.assign(pgliteDatabase, {
-      batch: async (queries: readonly { execute(): Promise<unknown> }[]) =>
-        await Promise.all(queries.map(async (query) => await query.execute())),
-    });
-    // Production uses Neon's Drizzle adapter. PGlite exposes compatible
-    // PostgreSQL query builders and this test supplies Neon's batch hook.
+    // PGlite exposes the PostgreSQL query builders and transaction behavior
+    // used by the production node-postgres adapter.
     // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- adapter-compatible integration test double
-    const database = pgliteDatabase as unknown as Database;
+    const database = pgliteDatabase as unknown as typeof db;
     vi.doMock("@/db", () => ({ ...schema, db: database }));
 
-    const [browsers, chats, secrets, sessions, settings, scope, vault] =
-      await Promise.all([
-        import("@/db/services/browsers"),
-        import("@/db/services/chats"),
-        import("@/db/services/secrets"),
-        import("@/db/services/sessions"),
-        import("@/db/services/settings"),
-        import("@/db/services/scope"),
-        import("@/db/services/vault"),
-      ]);
+    const [
+      browserImages,
+      browsers,
+      chats,
+      secrets,
+      sessions,
+      settings,
+      scope,
+      vault,
+    ] = await Promise.all([
+      import("@/db/services/browser-images"),
+      import("@/db/services/browsers"),
+      import("@/db/services/chats"),
+      import("@/db/services/secrets"),
+      import("@/db/services/sessions"),
+      import("@/db/services/settings"),
+      import("@/db/services/scope"),
+      import("@/db/services/vault"),
+    ]);
     const alice = { userId: "alice", workspaceId: "workspace:alice" };
     const bob = { userId: "bob", workspaceId: "workspace:bob" };
 
     await scope.ensureScope(alice);
     await scope.ensureScope(bob);
+
+    const imageInput = {
+      browserSessionId: "browser-alice",
+      idempotencyKey: "worker-session:call-image",
+      label: "Product image",
+      rootSessionId: "session-alice",
+      sourceKind: "viewport",
+      workerSessionId: "worker-alice",
+    };
+    const firstReservation = await browserImages.reserveBrowserImageArtifact(
+      alice,
+      imageInput
+    );
+    const retryReservation = await browserImages.reserveBrowserImageArtifact(
+      alice,
+      imageInput
+    );
+    expect(firstReservation.status).toBe("pending");
+    expect(retryReservation).toEqual(firstReservation);
+    if (firstReservation.status !== "pending") {
+      throw new Error("Expected a pending browser image reservation.");
+    }
+    const finalized = await browserImages.finalizeBrowserImageArtifact(
+      alice,
+      firstReservation.reservation,
+      {
+        byteSize: 8,
+        contentHash: "content-hash",
+        filename: "product.png",
+        mediaType: "image/png",
+        sourceKind: "viewport",
+        storagePathname: `${firstReservation.reservation.storagePathname}/content-hash`,
+      }
+    );
+    const image = finalized.image;
+    expect(image).toMatchObject({
+      byteSize: 8,
+      label: "Product image",
+      mediaType: "image/png",
+    });
+    await expect(
+      browserImages.finalizeBrowserImageArtifact(
+        alice,
+        firstReservation.reservation,
+        {
+          byteSize: 9,
+          contentHash: "losing-content-hash",
+          filename: "losing.png",
+          mediaType: "image/png",
+          sourceKind: "viewport",
+          storagePathname: `${firstReservation.reservation.storagePathname}/losing-content-hash`,
+        }
+      )
+    ).resolves.toEqual(finalized);
+    expect(
+      await browserImages.readReadyBrowserImageArtifact(alice, image.id, {
+        rootSessionId: "session-alice",
+      })
+    ).toBeDefined();
+    expect(
+      await browserImages.readReadyBrowserImageArtifact(bob, image.id)
+    ).toBeUndefined();
+    expect(
+      await browserImages.reserveBrowserImageArtifact(alice, imageInput)
+    ).toEqual({ image, status: "ready" });
+    await expect(
+      browserImages.reserveBrowserImageArtifact(alice, {
+        ...imageInput,
+        workerSessionId: "different-worker",
+      })
+    ).rejects.toThrow("idempotency key is already in use");
+
     await sessions.claimSession(alice, "session-alice");
 
     expect(await sessions.isSessionOwned(alice, "session-alice")).toBe(true);
@@ -53,6 +131,34 @@ describe("database services", () => {
       new Set(["session-alice"])
     );
     expect(await sessions.listOwnedSessionIds(bob)).toEqual(new Set());
+
+    await sessions.claimSession(alice, "session-imessage");
+    const unindexedChats = (await chats.listChats(alice)).sort((left, right) =>
+      left.sessionId.localeCompare(right.sessionId)
+    );
+    expect(
+      unindexedChats.map(({ sessionId, title, usage }) => ({
+        sessionId,
+        title,
+        usage,
+      }))
+    ).toEqual([
+      {
+        sessionId: "session-alice",
+        title: "New chat",
+        usage: { costUsd: null, inputTokens: 0, outputTokens: 0 },
+      },
+      {
+        sessionId: "session-imessage",
+        title: "New chat",
+        usage: { costUsd: null, inputTokens: 0, outputTokens: 0 },
+      },
+    ]);
+    expect(
+      unindexedChats.every(
+        (chat) => chat.createdAt.length > 0 && chat.updatedAt.length > 0
+      )
+    ).toBe(true);
 
     await sessions.claimSession(bob, "session-alice");
     expect(await sessions.isSessionOwned(alice, "session-alice")).toBe(true);
@@ -76,7 +182,14 @@ describe("database services", () => {
       outputTokens: 4,
     });
     expect(await chats.readChat(bob, "session-alice")).toBeUndefined();
-    expect(await chats.listChats(alice)).toEqual([aliceChat]);
+    const indexedChats = await chats.listChats(alice);
+    expect(indexedChats).toHaveLength(2);
+    expect(
+      indexedChats.find((chat) => chat.sessionId === "session-alice")
+    ).toEqual(aliceChat);
+    expect(indexedChats.map((chat) => chat.sessionId)).toContain(
+      "session-imessage"
+    );
     expect(await chats.listChats(bob)).toEqual([]);
 
     await expect(
@@ -144,6 +257,16 @@ describe("database services", () => {
 async function applyInitialMigration(database: PGlite) {
   const migration = await readFile(
     new URL("../db/migrations/0000_fluffy_the_spike.sql", import.meta.url),
+    "utf8"
+  );
+  for (const statement of migration.split("--> statement-breakpoint")) {
+    if (statement.trim()) await database.exec(statement);
+  }
+}
+
+async function applyBrowserImageMigration(database: PGlite) {
+  const migration = await readFile(
+    new URL("../db/migrations/0003_unusual_fabian_cortez.sql", import.meta.url),
     "utf8"
   );
   for (const statement of migration.split("--> statement-breakpoint")) {

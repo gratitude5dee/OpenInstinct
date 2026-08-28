@@ -2,18 +2,25 @@ import { and, eq } from "drizzle-orm";
 import type { AccessScope } from "@/lib/access-scope";
 import { db, encryptedSecrets } from "@/db";
 
+export type EncryptedSecretNamespace = "link" | "vault";
+export type SecretDatabase =
+  | typeof db
+  | Parameters<Parameters<typeof db.transaction>[0]>[0];
+
 export async function writeEncryptedSecret(
   scope: AccessScope,
   id: string,
-  encryptedValue: string
+  encryptedValue: string,
+  namespace: EncryptedSecretNamespace = "vault",
+  database: SecretDatabase = db
 ) {
   const updatedAt = new Date().toISOString();
-  await db
+  await database
     .insert(encryptedSecrets)
     .values({
       encryptedValue,
       id,
-      namespace: "vault",
+      namespace,
       updatedAt,
       workspaceId: scope.workspaceId,
     })
@@ -27,14 +34,19 @@ export async function writeEncryptedSecret(
     });
 }
 
-export async function readEncryptedSecret(scope: AccessScope, id: string) {
-  const rows = await db
+export async function readEncryptedSecret(
+  scope: AccessScope,
+  id: string,
+  namespace: EncryptedSecretNamespace = "vault",
+  database: SecretDatabase = db
+) {
+  const rows = await database
     .select({ encryptedValue: encryptedSecrets.encryptedValue })
     .from(encryptedSecrets)
     .where(
       and(
         eq(encryptedSecrets.workspaceId, scope.workspaceId),
-        eq(encryptedSecrets.namespace, "vault"),
+        eq(encryptedSecrets.namespace, namespace),
         eq(encryptedSecrets.id, id)
       )
     )
@@ -42,14 +54,34 @@ export async function readEncryptedSecret(scope: AccessScope, id: string) {
   return rows[0]?.encryptedValue;
 }
 
-export async function deleteEncryptedSecret(scope: AccessScope, id: string) {
-  await db
+export async function deleteEncryptedSecret(
+  scope: AccessScope,
+  id: string,
+  namespace: EncryptedSecretNamespace = "vault",
+  database: SecretDatabase = db
+) {
+  await database
     .delete(encryptedSecrets)
     .where(
       and(
         eq(encryptedSecrets.workspaceId, scope.workspaceId),
-        eq(encryptedSecrets.namespace, "vault"),
+        eq(encryptedSecrets.namespace, namespace),
         eq(encryptedSecrets.id, id)
+      )
+    );
+}
+
+export async function deleteEncryptedSecretNamespace(
+  scope: AccessScope,
+  namespace: EncryptedSecretNamespace,
+  database: SecretDatabase = db
+) {
+  await database
+    .delete(encryptedSecrets)
+    .where(
+      and(
+        eq(encryptedSecrets.workspaceId, scope.workspaceId),
+        eq(encryptedSecrets.namespace, namespace)
       )
     );
 }
